@@ -24,8 +24,11 @@ public class TutorBooking {
     @JoinColumn(name = "tutor_id")
     private User tutor;
 
-    @Column(nullable = false)
-    private String status; // PENDING, CONFIRMED, CANCELLED, PAID, COMPLETED
+    // TutorBooking.java
+
+@Enumerated(EnumType.STRING) // This is the "magic" line that prevents the bytea error
+@Column(nullable = false)
+private BookingStatus status;
 
     @Column
     private Double amountPaid;
@@ -46,5 +49,30 @@ public class TutorBooking {
     private LocalDateTime sessionDate;
 
     @Column
+    private LocalDateTime sessionEndDate;
+
+    @Column
     private LocalDateTime bookedAt;
+
+    // ✅ TO THIS (for safe migration):
+    @Column(name = "payment_status", nullable = true)
+    private String paymentStatus = "UNPAID";
+
+    @Column
+    private String paymentReference;
+
+    @Column
+    private String mpesaReceiptNumber;
+
+    @Column
+    private String merchantRequestId;
+
+    @Column
+    private String checkoutRequestId;
+
+    @Column
+    private String phoneNumber;
+
+    @Column
+    private LocalDateTime paidAt;
 }

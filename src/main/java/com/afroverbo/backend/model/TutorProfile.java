@@ -1,7 +1,11 @@
 package com.afroverbo.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "tutor_profiles")
@@ -37,26 +41,35 @@ public class TutorProfile {
     @Column
     private boolean available;
 
-    // ✅ New fields
     @Column
-    private String profilePicture; // URL to profile picture
+    private String profilePicture;
 
     @Column
-    private String qualifications; // e.g. "BA Linguistics - UoN, 10 years experience"
+    private String qualifications;
 
     @Column
     private String level; // BEGINNER, INTERMEDIATE, EXPERT
 
     @Column
-    private String experience; // e.g. "10 years teaching Luo"
+    private String experience;
 
     @Column(columnDefinition = "TEXT")
-    private String availableTimes; // e.g. "Mon-Fri 8am-5pm, Sat 9am-12pm"
+    private String availableTimes; // legacy free-text, kept for display
 
-    // ✅ Auto calculate platform fee and tutor earnings
+    // M-Pesa number where tutor earnings are sent
+    @Column
+    private String payoutPhoneNumber;
+
+    @OneToMany(mappedBy = "tutorProfile", cascade = CascadeType.ALL,
+               orphanRemoval = true, fetch = FetchType.EAGER)
+    @OrderBy("startDateTime ASC")
+    @JsonManagedReference
+    private List<TutorAvailabilitySlot> availabilitySlots = new ArrayList<>();
+
+    // Auto-calculate platform fee and tutor earnings when rate is set
     public void setHourlyRate(Double hourlyRate) {
-        this.hourlyRate = hourlyRate;
-        this.platformFee = hourlyRate * 0.20;
-        this.tutorEarnings = hourlyRate * 0.80;
+        this.hourlyRate    = hourlyRate;
+        this.platformFee   = hourlyRate != null ? hourlyRate * 0.20 : null;
+        this.tutorEarnings = hourlyRate != null ? hourlyRate * 0.80 : null;
     }
 }

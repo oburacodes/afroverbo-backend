@@ -33,6 +33,9 @@ public class UserProgress {
     private Integer quizScore;
 
     @Column
+    private Integer bestQuizScore;
+
+    @Column
     private Integer attempts = 0;
 
     @Column

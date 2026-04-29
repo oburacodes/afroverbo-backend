@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface LessonContentRepository extends JpaRepository<LessonContent, Long> {
     List<LessonContent> findByModuleIdOrderByOrderNumber(Long moduleId);
+    long countByModuleCourseLanguageId(Long languageId);
 }    

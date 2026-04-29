@@ -1,5 +1,6 @@
 package com.afroverbo.backend.controller;
 
+import com.afroverbo.backend.model.TutorAvailabilitySlot;
 import com.afroverbo.backend.model.TutorProfile;
 import com.afroverbo.backend.model.User;
 import com.afroverbo.backend.repository.TutorProfileRepository;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -19,81 +21,126 @@ public class TutorProfileController {
     private final TutorProfileRepository tutorProfileRepository;
     private final UserRepository userRepository;
 
-    // ✅ GET all available tutors
+    // ── GET all tutors (with search/filter) ───────────────────────────────────
     @GetMapping
-    public ResponseEntity<List<TutorProfile>> getAllAvailableTutors() {
-        return ResponseEntity.ok(tutorProfileRepository.findByAvailable(true));
+    public ResponseEntity<List<TutorProfile>> getAllTutors(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String specialization,
+            @RequestParam(required = false) Boolean available,
+            @RequestParam(required = false) Double minRate,
+            @RequestParam(required = false) Double maxRate) {
+        return ResponseEntity.ok(
+                tutorProfileRepository.searchTutors(
+                        normalize(query), normalize(specialization), available, minRate, maxRate));
     }
 
-    // ✅ GET tutors by specialization (language)
+    // ── GET by specialization ─────────────────────────────────────────────────
     @GetMapping("/specialization/{language}")
-    public ResponseEntity<List<TutorProfile>> getTutorsBySpecialization(@PathVariable String language) {
+    public ResponseEntity<List<TutorProfile>> getBySpecialization(@PathVariable String language) {
         return ResponseEntity.ok(tutorProfileRepository.findBySpecializationAndAvailable(language, true));
     }
 
-    // ✅ GET single tutor profile
+    // ── GET single profile ────────────────────────────────────────────────────
     @GetMapping("/{id}")
     public ResponseEntity<TutorProfile> getTutorProfile(@PathVariable Long id) {
-        TutorProfile profile = tutorProfileRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Tutor profile not found"));
-        return ResponseEntity.ok(profile);
+        return ResponseEntity.ok(tutorProfileRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Tutor profile not found")));
     }
 
-    // ✅ GET tutor profile by user ID
+    // ── GET by user ID ────────────────────────────────────────────────────────
     @GetMapping("/user/{userId}")
     public ResponseEntity<?> getTutorProfileByUserId(@PathVariable Long userId) {
-    return tutorProfileRepository.findByUserId(userId)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
-}
+        return tutorProfileRepository.findByUserId(userId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 
-    // ✅ POST create tutor profile — admin only
+    // ── GET availability slots ────────────────────────────────────────────────
+    @GetMapping("/{id}/availability")
+    public ResponseEntity<List<TutorAvailabilitySlot>> getAvailability(@PathVariable Long id) {
+        TutorProfile profile = tutorProfileRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Tutor profile not found"));
+        return ResponseEntity.ok(profile.getAvailabilitySlots());
+    }
+
+    // ── POST create profile (admin only) ──────────────────────────────────────
     @PostMapping
     public ResponseEntity<?> createTutorProfile(@RequestBody TutorProfile tutorProfile,
                                                  @RequestParam Long userId) {
         try {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
-
             if (!user.getRole().equals("ADMIN")) {
                 return ResponseEntity.badRequest().body("Only admins can create tutor profiles");
             }
-
             if (tutorProfileRepository.findByUserId(userId).isPresent()) {
-                return ResponseEntity.badRequest().body("Tutor profile already exists for this user");
+                return ResponseEntity.badRequest().body("Tutor profile already exists");
             }
-
             tutorProfile.setUser(user);
-            tutorProfile.setHourlyRate(tutorProfile.getHourlyRate());
-
+            syncSlots(tutorProfile, tutorProfile.getAvailabilitySlots());
             return ResponseEntity.ok(tutorProfileRepository.save(tutorProfile));
-
         } catch (Exception e) {
-            e.printStackTrace();
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 
-
-
-    // ✅ PUT update tutor profile
+    // ── PUT update full profile ───────────────────────────────────────────────
     @PutMapping("/{id}")
     public ResponseEntity<?> updateTutorProfile(@PathVariable Long id,
-                                                 @RequestBody TutorProfile updatedProfile) {
-
+                                                 @RequestBody TutorProfile updated) {
         TutorProfile profile = tutorProfileRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Tutor profile not found"));
 
-        profile.setBio(updatedProfile.getBio());
-        profile.setHourlyRate(updatedProfile.getHourlyRate());
-        profile.setSpecialization(updatedProfile.getSpecialization());
-        profile.setAvailable(updatedProfile.isAvailable());
-        profile.setQualifications(updatedProfile.getQualifications());
-        profile.setLevel(updatedProfile.getLevel());
-        profile.setExperience(updatedProfile.getExperience());
-        profile.setProfilePicture(updatedProfile.getProfilePicture());
-        profile.setAvailableTimes(updatedProfile.getAvailableTimes());
+        if (updated.getBio()             != null) profile.setBio(updated.getBio());
+        if (updated.getHourlyRate()      != null) profile.setHourlyRate(updated.getHourlyRate());
+        if (updated.getSpecialization()  != null) profile.setSpecialization(updated.getSpecialization());
+        if (updated.getQualifications()  != null) profile.setQualifications(updated.getQualifications());
+        if (updated.getLevel()           != null) profile.setLevel(updated.getLevel());
+        if (updated.getExperience()      != null) profile.setExperience(updated.getExperience());
+        if (updated.getProfilePicture()  != null) profile.setProfilePicture(updated.getProfilePicture());
+        if (updated.getAvailableTimes()  != null) profile.setAvailableTimes(updated.getAvailableTimes());
+        if (updated.getPayoutPhoneNumber() != null) profile.setPayoutPhoneNumber(updated.getPayoutPhoneNumber());
+        profile.setAvailable(updated.isAvailable());
+
+        if (updated.getAvailabilitySlots() != null) {
+            syncSlots(profile, updated.getAvailabilitySlots());
+        }
 
         return ResponseEntity.ok(tutorProfileRepository.save(profile));
+    }
+
+    // ── PUT update availability slots only ────────────────────────────────────
+    @PutMapping("/{id}/availability")
+    public ResponseEntity<?> updateAvailability(@PathVariable Long id,
+                                                @RequestBody List<TutorAvailabilitySlot> slots) {
+        TutorProfile profile = tutorProfileRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Tutor profile not found"));
+        syncSlots(profile, slots);
+        return ResponseEntity.ok(tutorProfileRepository.save(profile));
+    }
+
+    // ── Sync slots helper ─────────────────────────────────────────────────────
+    private void syncSlots(TutorProfile profile, List<TutorAvailabilitySlot> incoming) {
+        profile.getAvailabilitySlots().clear();
+        if (incoming == null || incoming.isEmpty()) return;
+
+        for (TutorAvailabilitySlot s : incoming) {
+            if (s.getStartDateTime() == null || s.getEndDateTime() == null) continue;
+            if (!s.getEndDateTime().isAfter(s.getStartDateTime())) {
+                throw new RuntimeException(
+                        "Slot end time must be after start time: " + s.getStartDateTime());
+            }
+            TutorAvailabilitySlot slot = new TutorAvailabilitySlot();
+            slot.setTutorProfile(profile);
+            slot.setStartDateTime(s.getStartDateTime());
+            slot.setEndDateTime(s.getEndDateTime());
+            slot.setLabel(s.getLabel());
+            slot.setActive(s.isActive());
+            profile.getAvailabilitySlots().add(slot);
+        }
+    }
+
+    private String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
